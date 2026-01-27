@@ -1,27 +1,58 @@
 import pygame
 import random
-import math
+import os
 
 # --- Configuration ---
 pygame.init()
 WIDTH, HEIGHT = 800, 600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Fruit Typing - Ninja Style")
+game_surf = pygame.Surface((WIDTH, HEIGHT))
+pygame.display.set_caption("Fruit Ninja Ultimate - Fixed Loto Display")
 clock = pygame.time.Clock()
 
-# Couleurs et Polices
-DARK_BLUE, YELLOW, RED, GREEN, WHITE = (44, 62, 80), (241, 196, 15), (231, 76, 60), (46, 204, 113), (255, 255, 255)
-font_letter = pygame.font.SysFont("Arial", 32, bold=True)
-font_ui = pygame.font.SysFont("Arial", 45, bold=True)
-font_small = pygame.font.SysFont("Arial", 24, bold=True)
+# Couleurs
+DARK_BLUE = (44, 62, 80)
+YELLOW, RED, GREEN, WHITE = (241, 196, 15), (231, 76, 60), (46, 204, 113), (255, 255, 255)
+GOLD, PURPLE, ICE_BLUE = (255, 215, 0), (155, 89, 182), (100, 200, 255)
 
-# --- Chargement des Images ---
+# Polices
+font_letter = pygame.font.SysFont("Arial", 30, bold=True)
+font_small = pygame.font.SysFont("Arial", 20, bold=True)
+# TAILLE RÉDUITE ICI : de 55 à 40
+font_huge = pygame.font.SysFont("Arial", 40, bold=True)
+
+# --- Dictionnaire ---
+if os.path.exists("mots.txt"):
+    with open("mots.txt", "r", encoding="utf-8") as f:
+        DICTIONNAIRE = [line.strip().upper() for line in f if line.strip()]
+else:
+    DICTIONNAIRE = ["FRUIT", "PYTHON", "LOTO", "BONUS", "NINJA", "GLACE"]
+
+# --- Liste des Images (23 éléments) ---
 IMAGES_LIST = {
-    'abricot': 'abricot.png', 'ananas': 'ananas.png', 'banane': 'banane.png',
-    'bombe': 'bombe.png', 'bonus_etoile': 'bonus_etoile.png',
-    'fruit_dragon': 'fruit_du_dragon.png', 'kiwi': 'kiwi.png',
-    'mangue': 'mangue.png', 'pasteque': 'pasteque.png', 'pomme': 'pomme.png',
-    'piege_etoile': 'piege_etoile.png', 'coeur': 'coeur.png' # Notre nouvel objet rare
+    "abricot": "abricot.png",
+    "ananas": "ananas.png",
+    "banane": "banane.png",
+    "bombe": "bombe.png",
+    "cerise": "cerise.png",
+    "citron": "citron.png",
+    "fraise": "fraise.png",
+    "framboise": "framboise.png",
+    "fruit_du_dragon": "fruit_du_dragon.png",
+    "ice block": "glaçon.png",       # Effet de gel
+    "kiwi": "kiwi.png",
+    "mangue": "mangue.png",
+    "melon": "melon.png",
+    "myrtille": "myrtille.png",
+    "noix_de_coco": "noix_de_coco.png",
+    "orange": "orange.png",
+    "pasteque": "pasteque.png",
+    "peche": "peche.png",
+    "poire": "poire.png",
+    "pomme": "pomme.png",
+    "raisin": "raisin.png",
+    "spinner": "shuriken.png",      # Effet de coupe totale
+    "loto": "loto.png"              # Mode dictionnaire
 }
 
 IMG_DATA = {}
@@ -31,143 +62,145 @@ for name, filename in IMAGES_LIST.items():
         IMG_DATA[name] = pygame.transform.scale(img, (60, 60))
     except:
         surf = pygame.Surface((60, 60), pygame.SRCALPHA)
-        pygame.draw.circle(surf, RED if name in ['bombe', 'coeur'] else GREEN, (30, 30), 25)
+        c = PURPLE if name == "loto" else (ICE_BLUE if name == "ice block" else GREEN)
+        pygame.draw.circle(surf, c, (30, 30), 25)
         IMG_DATA[name] = surf
 
-# Image pour l'UI des vies
-try:
-    img_coeur_ui = pygame.image.load("coeur_pouls.png").convert_alpha()
-    img_coeur_ui = pygame.transform.scale(img_coeur_ui, (35, 35))
-except:
-    img_coeur_ui = pygame.Surface((35, 35)); img_coeur_ui.fill(RED)
-
-# --- Classe Objet Ninja (Propulsion) ---
-class GameObject:
-    def __init__(self, speed):
-        # On choisit 'coeur' seulement 5% du temps
-        prob = random.random()
-        if prob < 0.05: self.type = 'coeur'
-        else: self.type = random.choice([k for k in IMG_DATA.keys() if k != 'coeur'])
-        
-        self.image = IMG_DATA[self.type]
-        self.letter = random.choice("abcdefghijklmnopqrstuvwxyz")
-        
-        # Position de départ : En bas de l'écran
-        self.x = random.randint(100, WIDTH - 100)
-        self.y = HEIGHT + 20
-        
-        # Propulsion vers le haut (vitesse verticale négative)
-        self.vy = random.uniform(-14, -18) - (speed * 0.5)
-        # Petit décalage horizontal
-        self.vx = random.uniform(-2, 2)
-        self.gravity = 0.35 # La force qui fait retomber le fruit
-
-    def move(self):
-        self.vy += self.gravity # La gravité tire vers le bas
-        self.y += self.vy
-        self.x += self.vx
-
+# --- Classes ---
+class Particle:
+    def __init__(self, x, y, color):
+        self.x, self.y, self.vx, self.vy, self.life = x, y, random.uniform(-4, 4), random.uniform(-4, 4), 255
+    def update(self): self.x += self.vx; self.y += self.vy; self.life -= 15
     def draw(self, surf):
-        surf.blit(self.image, (self.x, self.y))
-        color = RED if self.type == 'bombe' else YELLOW
-        txt = font_letter.render(self.letter.upper(), True, color)
-        surf.blit(txt, (self.x + 18, self.y + 60))
+        if self.life > 0:
+            p = pygame.Surface((4, 4), pygame.SRCALPHA); p.fill((*WHITE[:3], self.life)); surf.blit(p, (self.x, self.y))
 
-# --- Variables de Session ---
+class FruitSlice:
+    def __init__(self, image, x, y, direction):
+        w, h = image.get_size()
+        self.image = pygame.Surface((w//2, h), pygame.SRCALPHA)
+        self.image.blit(image, (0, 0), (0 if direction == "left" else w//2, 0, w//2, h))
+        self.vx, self.x, self.y, self.vy, self.angle = (-6 if direction == "left" else 6), x, y, -8, 0
+    def update(self): self.vy += 0.4; self.x += self.vx; self.y += self.vy; self.angle += 10
+    def draw(self, surf):
+        rotated = pygame.transform.rotate(self.image, self.angle); surf.blit(rotated, (self.x, self.y))
+
+class GameObject:
+    def __init__(self, speed_mult=1.0):
+        self.is_enrobed = random.random() < 0.12 
+        rand = random.random()
+        if rand < 0.05: self.type = "loto"      
+        elif rand < 0.10: self.type = "ice block"
+        elif rand < 0.18: self.type = "spinner" 
+        elif rand < 0.28: self.type = "bombe"   
+        else: self.type = random.choice([k for k in IMG_DATA.keys() if k not in ["spinner", "bombe", "loto", "ice block"]])
+        self.image_orig, self.letter = IMG_DATA[self.type], random.choice("abcdefghijklmnopqrstuvwxyz")
+        self.x, self.y = random.randint(100, WIDTH - 100), HEIGHT + 20
+        self.vy, self.vx = random.uniform(-14, -18) * speed_mult, random.uniform(-1.5, 1.5)
+        self.angle, self.rot_speed, self.hp = 0, random.randint(-4, 4), (2 if self.is_enrobed else 1)
+    def move(self): self.vy += 0.35; self.y += self.vy; self.x += self.vx; self.angle += self.rot_speed
+    def draw(self, surf):
+        if self.is_enrobed and self.hp > 0: pygame.draw.circle(surf, GOLD, (int(self.x + 30), int(self.y + 30)), 38, 3)
+        rotated = pygame.transform.rotate(self.image_orig, self.angle)
+        rect = rotated.get_rect(center=(self.x + 30, self.y + 30)); surf.blit(rotated, rect.topleft)
+        color = PURPLE if self.type == "loto" else (ICE_BLUE if self.type == "ice block" else YELLOW)
+        txt = font_letter.render(self.letter.upper(), True, color); surf.blit(txt, (self.x + 15, self.y + 60))
+
+# --- Variables Globales ---
 game_mode = "MENU"
-score, vies, score_goal = 0, 3, 500
-difficulty_speed = 3.0
-spawn_delay = 1200
-time_limit = 30
-start_ticks = 0
-active_objects = []
-shake_amount = 0
+active_objects, slices, particles, slashes, found_words = [], [], [], [], []
+score, vies, speed_multiplier, shake_amount = 0, 3, 1.0, 0
+is_frozen, is_iced, bonus_extended = False, False, False
+freeze_timer, ice_timer, input_text = 0, 0, ""
 
 SPAWN_EVENT = pygame.USEREVENT + 1
-pygame.time.set_timer(SPAWN_EVENT, spawn_delay)
+pygame.time.set_timer(SPAWN_EVENT, 900)
 
-def draw_menu():
-    screen.fill(DARK_BLUE)
-    title = font_ui.render("FRUIT NINJA TYPING", True, YELLOW)
-    screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 80))
-    txt_c = font_small.render("[C] MODE CLASSIQUE", True, GREEN)
-    txt_h = font_small.render("[H] MODE CHALLENGE", True, YELLOW)
-    screen.blit(txt_c, (WIDTH // 2 - txt_c.get_width() // 2, 320))
-    screen.blit(txt_h, (WIDTH // 2 - txt_h.get_width() // 2, 380))
-
-# --- Boucle Principale ---
+# --- Boucle ---
 running = True
 while running:
-    render_offset = [0, 0]
-    if shake_amount > 0:
-        render_offset = [random.randint(-shake_amount, shake_amount), random.randint(-shake_amount, shake_amount)]
-        shake_amount -= 2
-
-    events = pygame.event.get()
-    for event in events:
+    screen.fill(DARK_BLUE)
+    for event in pygame.event.get():
         if event.type == pygame.QUIT: running = False
-        
-        if game_mode == "MENU":
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_c: game_mode, score, vies, active_objects = "CLASSIQUE", 0, 3, []
-                if event.key == pygame.K_h: game_mode, score, vies, active_objects = "CHALLENGE", 0, 3, [], pygame.time.get_ticks()
-
-        elif game_mode in ["CLASSIQUE", "CHALLENGE"]:
-            if event.type == SPAWN_EVENT:
-                active_objects.append(GameObject(difficulty_speed))
-            
-            if event.type == pygame.KEYDOWN:
+        if game_mode == "MENU" and event.type == pygame.MOUSEBUTTONDOWN:
+            game_mode, score, vies, speed_multiplier, is_frozen, is_iced = "PLAY", 0, 3, 1.0, False, False
+            active_objects, slices, particles, found_words = [], [], [], []
+        if game_mode == "PLAY" and event.type == pygame.KEYDOWN:
+            if is_frozen:
+                if event.key == pygame.K_RETURN:
+                    mot = input_text.upper().strip()
+                    if mot in DICTIONNAIRE and mot not in found_words:
+                        found_words.append(mot); score += 50
+                        if len(found_words) % 5 == 0: freeze_timer += 300 # Petit bonus de temps tous les 5 mots
+                    input_text = ""
+                elif event.key == pygame.K_BACKSPACE: input_text = input_text[:-1]
+                elif len(input_text) < 12 and (event.unicode.isalpha() or event.unicode == "-"): input_text += event.unicode
+            else:
                 key = pygame.key.name(event.key).lower()
                 for obj in active_objects[:]:
                     if obj.letter == key:
-                        if obj.type == 'bombe':
-                            vies -= 1; shake_amount = 15; active_objects = []
-                        elif obj.type == 'coeur':
-                            vies = min(3, vies + 1) # Max 3 vies
-                        elif obj.type == 'bonus_etoile':
-                            active_objects = [o for o in active_objects if o.type == 'bombe']; score += 50
-                        elif obj.type == 'piege_etoile':
-                            if any(o.type == 'bombe' for o in active_objects): vies -= 1; shake_amount = 15; active_objects = []
-                            else: active_objects = []; score += 30
-                        else: score += 10
-                        if obj in active_objects: active_objects.remove(obj)
+                        obj.hp -= 1
+                        if obj.hp <= 0:
+                            if obj.type == "loto": is_frozen, freeze_timer, input_text, found_words = True, 600, "", []
+                            elif obj.type == "ice block": is_iced, ice_timer = True, 400
+                            elif obj.type in ["spinner", "bombe"] or obj.is_enrobed:
+                                if obj.type == "spinner": slashes.append({"start": (0, random.randint(100,500)), "end": (WIDTH, random.randint(100,500)), "life": 255})
+                                if obj.type == "bombe": vies -= 1; shake_amount = 30
+                                else: # Spinner ou Enrobed
+                                    shake_amount = 15
+                                    for o in active_objects[:]:
+                                        if o.type != "bombe":
+                                            slices.extend([FruitSlice(o.image_orig, o.x, o.y, "left"), FruitSlice(o.image_orig, o.x, o.y, "right")])
+                                            score += 10; active_objects.remove(o)
+                            else:
+                                score += 10; slices.extend([FruitSlice(obj.image_orig, obj.x, obj.y, "left"), FruitSlice(obj.image_orig, obj.x, obj.y, "right")])
+                                for _ in range(4): particles.append(Particle(obj.x+30, obj.y+30, WHITE))
+                            if obj in active_objects: active_objects.remove(obj)
+                            speed_multiplier = 1.0 + (score // 600) * 0.1
                         break
+        if event.type == SPAWN_EVENT and not is_frozen and game_mode == "PLAY": active_objects.append(GameObject(speed_multiplier))
 
-    if game_mode == "MENU":
-        draw_menu()
-    else:
-        game_surf = pygame.Surface((WIDTH, HEIGHT))
+    if game_mode == "PLAY":
         game_surf.fill(DARK_BLUE)
-        
-        if vies <= 0: game_mode = "MENU"
-
-        # Logique des modes
-        if game_mode == "CLASSIQUE":
-            ui_txt = font_small.render(f"Score: {score}/{score_goal}", True, WHITE)
-            if score >= score_goal:
-                score_goal += 500; difficulty_speed += 0.5
-                spawn_delay = max(400, spawn_delay - 100)
-                pygame.time.set_timer(SPAWN_EVENT, spawn_delay)
-                game_mode = "MENU"
-        elif game_mode == "CHALLENGE":
-            start_ticks = start_ticks if 'start_ticks' in locals() else pygame.time.get_ticks() # Fix challenge start
-            # (Logique timer ici...)
-
-        # Mise à jour Ninja
+        if is_frozen: freeze_timer -= 1; is_frozen = (freeze_timer > 0)
+        if is_iced: ice_timer -= 1; is_iced = (ice_timer > 0)
+        for p in particles[:]: p.update(); p.draw(game_surf); (particles.remove(p) if p.life <= 0 else None)
+        for s in slices[:]: s.update(); s.draw(game_surf); (slices.remove(s) if s.y > HEIGHT + 100 else None)
+        for sl in slashes[:]: pygame.draw.line(game_surf, WHITE, sl["start"], sl["end"], 10); sl["life"] -= 50; (slashes.remove(sl) if sl["life"] <= 0 else None)
         for obj in active_objects[:]:
-            obj.move()
+            if not is_frozen:
+                if is_iced: obj.y += obj.vy * 0.25; obj.x += obj.vx * 0.25
+                else: obj.move()
             obj.draw(game_surf)
-            # Supprime si l'objet est retombé sous l'écran
-            if obj.y > HEIGHT + 50 and obj.vy > 0:
+            if obj.y > HEIGHT + 100:
+                if not is_iced and obj.type not in ["bombe", "loto", "ice block"]: vies -= 1
                 active_objects.remove(obj)
-                if game_mode == "CLASSIQUE" and obj.type not in ['bombe', 'coeur']: score -= 5
+        shake_off = [random.randint(-shake_amount, shake_amount), random.randint(-shake_amount, shake_amount)] if shake_amount > 0 else [0,0]
+        shake_amount = max(0, shake_amount - 1); screen.blit(game_surf, shake_off)
 
-        # Affichage UI des Vies avec coeur_pouls.png
-        for i in range(vies):
-            game_surf.blit(img_coeur_ui, (20 + (i * 40), 50))
-        game_surf.blit(ui_txt, (20, 20))
-        
-        screen.blit(game_surf, render_offset)
+        # --- GESTION DES FILTRES ET TEXTES LOTO ---
+        if is_iced and not is_frozen:
+            ice_ov = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); ice_ov.fill((100, 200, 255, 90)); screen.blit(ice_ov, (0,0))
+            pygame.draw.rect(screen, WHITE, (0,0, WIDTH, HEIGHT), 8)
+
+        if is_frozen:
+            black_ov = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); black_ov.fill((0, 0, 0, 210)); screen.blit(black_ov, (0,0))
+            sec = max(0, freeze_timer // 60 + 1)
+            screen.blit(font_huge.render(f"LOTO: {sec}s", True, GOLD), (WIDTH//2 - 120, 50))
+            pygame.draw.rect(screen, PURPLE, (WIDTH//2 - 200, HEIGHT//2 - 40, 400, 80), 2, border_radius=15)
+            txt_in = font_huge.render(input_text.upper(), True, WHITE); screen.blit(txt_in, (WIDTH//2 - txt_in.get_width()//2, HEIGHT//2 - 35))
+            
+            # --- ICI : LA LISTE DES MOTS (Affichée uniquement quand is_frozen est VRAI) ---
+            if len(found_words) > 0:
+                y_s = 120
+                screen.blit(font_small.render("MOTS VALIDÉS :", True, YELLOW), (40, y_s))
+                for i, m in enumerate(found_words[-10:]): # Affiche les 10 derniers
+                    screen.blit(font_small.render(f"OK - {m}", True, GREEN), (45, y_s + 35 + i * 25))
+
+        screen.blit(font_small.render(f"Score: {score}  Vies: {vies}", True, WHITE), (20, 20))
+        if vies <= 0: game_mode = "MENU"
+    else:
+        msg = font_huge.render("CLIQUEZ POUR JOUER", True, WHITE); screen.blit(msg, (WIDTH//2 - msg.get_width()//2, HEIGHT//2))
 
     pygame.display.flip()
     clock.tick(60)
