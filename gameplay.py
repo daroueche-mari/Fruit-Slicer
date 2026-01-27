@@ -7,7 +7,7 @@ pygame.init()
 WIDTH, HEIGHT = 800, 600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 game_surf = pygame.Surface((WIDTH, HEIGHT))
-pygame.display.set_caption("Fruit Ninja Ultimate - Fixed Edition")
+pygame.display.set_caption("Fruit Ninja Ultimate - Pause Edition")
 clock = pygame.time.Clock()
 
 # Couleurs
@@ -18,7 +18,7 @@ GOLD, PURPLE, ICE_BLUE = (255, 215, 0), (155, 89, 182), (100, 200, 255)
 # Polices
 font_letter = pygame.font.SysFont("Arial", 30, bold=True)
 font_small = pygame.font.SysFont("Arial", 20, bold=True)
-font_huge = pygame.font.SysFont("Arial", 40, bold=True) 
+font_huge = pygame.font.SysFont("Arial", 40, bold=True)
 
 # --- Dictionnaire ---
 if os.path.exists("mots.txt"):
@@ -27,7 +27,7 @@ if os.path.exists("mots.txt"):
 else:
     DICTIONNAIRE = ["FRUIT", "PYTHON", "LOTO", "BONUS", "NINJA", "GLACE"]
 
-# --- Liste des Images (23 éléments) ---
+# --- Images ---
 IMAGES_LIST = {
     "abricot": "abricot.png", "ananas": "ananas.png", "banane": "banane.png",
     "bombe": "bombe.png", "cerise": "cerise.png", "citron": "citron.png", 
@@ -50,7 +50,7 @@ for name, filename in IMAGES_LIST.items():
         pygame.draw.circle(surf, c, (30, 30), 25)
         IMG_DATA[name] = surf
 
-# --- Classes Effets ---
+# --- Classes ---
 class Particle:
     def __init__(self, x, y):
         self.x, self.y, self.vx, self.vy, self.life = x, y, random.uniform(-4, 4), random.uniform(-4, 4), 255
@@ -91,10 +91,10 @@ class GameObject:
         txt = font_letter.render(self.letter.upper(), True, color); surf.blit(txt, (self.x + 15, self.y + 60))
 
 # --- Variables Globales ---
-game_mode = "MENU"
+game_mode = "MENU" # MENU, PLAY, GAMEOVER, PAUSE
 current_sub_mode = "CLASSIC"
 active_objects, slices, particles, slashes, found_words = [], [], [], [], []
-score, vies, speed_multiplier, shake_amount = 0, 3, 1.0, 0
+score, high_score, vies, speed_multiplier, shake_amount = 0, 0, 3, 1.0, 0
 challenge_timer = 60 * 60
 is_frozen, is_iced, freeze_timer, ice_timer, input_text = False, False, 0, 0, ""
 
@@ -116,52 +116,72 @@ while running:
     
     for event in pygame.event.get():
         if event.type == pygame.QUIT: running = False
-        if game_mode == "MENU" and event.type == pygame.MOUSEBUTTONDOWN:
-            if WIDTH//2 - 150 < mouse_pos[0] < WIDTH//2 + 150:
-                if 250 < mouse_pos[1] < 310: reset_game("CLASSIC")
-                elif 330 < mouse_pos[1] < 390: reset_game("CHALLENGE")
+        
+        # CLIC SOURIS (MENUS)
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if game_mode == "MENU":
+                if WIDTH//2 - 150 < mouse_pos[0] < WIDTH//2 + 150:
+                    if 250 < mouse_pos[1] < 310: reset_game("CLASSIC")
+                    elif 330 < mouse_pos[1] < 390: reset_game("CHALLENGE")
+            
+            elif game_mode == "GAMEOVER":
+                if WIDTH//2 - 150 < mouse_pos[0] < WIDTH//2 + 150:
+                    if 300 < mouse_pos[1] < 360: reset_game(current_sub_mode)
+                    elif 380 < mouse_pos[1] < 440: game_mode = "MENU"
+            
+            elif game_mode == "PAUSE":
+                if WIDTH//2 - 150 < mouse_pos[0] < WIDTH//2 + 150:
+                    if 300 < mouse_pos[1] < 360: game_mode = "PLAY" # Reprendre
+                    elif 380 < mouse_pos[1] < 440: game_mode = "MENU" # Quitter vers Menu
 
-        if game_mode == "PLAY" and event.type == pygame.KEYDOWN:
-            if is_frozen:
-                if event.key == pygame.K_RETURN:
-                    mot = input_text.upper().strip()
-                    if mot in DICTIONNAIRE and mot not in found_words:
-                        found_words.append(mot); score += 50
-                    input_text = ""
-                elif event.key == pygame.K_BACKSPACE: input_text = input_text[:-1]
-                elif len(input_text) < 12 and (event.unicode.isalpha() or event.unicode == "-"): input_text += event.unicode
-            else:
-                key = pygame.key.name(event.key).lower()
-                for obj in active_objects[:]:
-                    if obj.letter == key:
-                        obj.hp -= 1
-                        if obj.hp <= 0:
-                            if obj.type == "loto": is_frozen, freeze_timer, input_text, found_words = True, 600, "", []
-                            elif obj.type == "ice block": is_iced, ice_timer = True, 400
-                            elif obj.type in ["spinner", "bombe"] or obj.is_enrobed:
-                                if obj.type == "spinner": slashes.append({"start": (0, random.randint(100,500)), "end": (WIDTH, random.randint(100,500)), "life": 255})
-                                if obj.type == "bombe": 
-                                    if current_sub_mode == "CLASSIC": vies -= 1
-                                    else: score = max(0, score - 50)
-                                    shake_amount = 30
+        # CLAVIER
+        if event.type == pygame.KEYDOWN:
+            if game_mode == "PLAY":
+                if event.key == pygame.K_ESCAPE:
+                    game_mode = "PAUSE" # Activer la pause
+                elif is_frozen:
+                    if event.key == pygame.K_RETURN:
+                        mot = input_text.upper().strip()
+                        if mot in DICTIONNAIRE and mot not in found_words:
+                            found_words.append(mot); score += 50
+                        input_text = ""
+                    elif event.key == pygame.K_BACKSPACE: input_text = input_text[:-1]
+                    elif len(input_text) < 12 and (event.unicode.isalpha() or event.unicode == "-"): input_text += event.unicode
+                else:
+                    key = pygame.key.name(event.key).lower()
+                    for obj in active_objects[:]:
+                        if obj.letter == key:
+                            obj.hp -= 1
+                            if obj.hp <= 0:
+                                if obj.type == "loto": is_frozen, freeze_timer, input_text, found_words = True, 600, "", []
+                                elif obj.type == "ice block": is_iced, ice_timer = True, 400
+                                elif obj.type in ["spinner", "bombe"] or obj.is_enrobed:
+                                    if obj.type == "bombe": 
+                                        if current_sub_mode == "CLASSIC": vies -= 1
+                                        else: score = max(0, score - 50)
+                                        shake_amount = 30
+                                    else:
+                                        shake_amount = 15
+                                        for o in active_objects[:]:
+                                            if o.type != "bombe":
+                                                slices.extend([FruitSlice(o.image_orig, o.x, o.y, "left"), FruitSlice(o.image_orig, o.x, o.y, "right")])
+                                                score += 10; active_objects.remove(o)
                                 else:
-                                    shake_amount = 15
-                                    for o in active_objects[:]:
-                                        if o.type != "bombe":
-                                            slices.extend([FruitSlice(o.image_orig, o.x, o.y, "left"), FruitSlice(o.image_orig, o.x, o.y, "right")])
-                                            score += 10; active_objects.remove(o)
-                            else:
-                                score += 10; slices.extend([FruitSlice(obj.image_orig, obj.x, obj.y, "left"), FruitSlice(obj.image_orig, obj.x, obj.y, "right")])
-                                for _ in range(4): particles.append(Particle(obj.x+30, obj.y+30))
-                            if obj in active_objects: active_objects.remove(obj)
-                            speed_multiplier = 1.0 + (score // 600) * 0.1
-                        break
-        if event.type == SPAWN_EVENT and not is_frozen and game_mode == "PLAY": active_objects.append(GameObject(speed_multiplier))
+                                    score += 10; slices.extend([FruitSlice(obj.image_orig, obj.x, obj.y, "left"), FruitSlice(obj.image_orig, obj.x, obj.y, "right")])
+                                    for _ in range(4): particles.append(Particle(obj.x+30, obj.y+30))
+                                if obj in active_objects: active_objects.remove(obj)
+                                speed_multiplier = 1.0 + (score // 600) * 0.1
+                                if score > high_score: high_score = score
+                            break
+            elif game_mode == "PAUSE" and event.key == pygame.K_ESCAPE:
+                game_mode = "PLAY" # Sortir de pause avec Echap aussi
+        
+        if event.type == SPAWN_EVENT and not is_frozen and game_mode == "PLAY": 
+            active_objects.append(GameObject(speed_multiplier))
 
+    # --- ÉTATS DU JEU ---
     if game_mode == "PLAY":
         game_surf.fill(DARK_BLUE)
-        
-        # --- LOGIQUE DU TEMPS CORRIGÉE ---
         if is_frozen:
             freeze_timer -= 1
             is_frozen = (freeze_timer > 0)
@@ -169,22 +189,17 @@ while running:
             if is_iced:
                 ice_timer -= 1
                 if ice_timer <= 0: is_iced = False
-            
             if current_sub_mode == "CHALLENGE":
                 challenge_timer -= 1
-                if challenge_timer <= 0: game_mode = "MENU"
+                if challenge_timer <= 0: game_mode = "GAMEOVER"
 
-        # Effets & Objets
         for p in particles[:]: p.update(); p.draw(game_surf); (particles.remove(p) if p.life <= 0 else None)
         for s in slices[:]: s.update(); s.draw(game_surf); (slices.remove(s) if s.y > HEIGHT + 100 else None)
         for sl in slashes[:]: pygame.draw.line(game_surf, WHITE, sl["start"], sl["end"], 10); sl["life"] -= 50; (slashes.remove(sl) if sl["life"] <= 0 else None)
-        
         for obj in active_objects[:]:
             if not is_frozen:
-                if is_iced: 
-                    obj.y += obj.vy * 0.25; obj.x += obj.vx * 0.25
-                else: 
-                    obj.move()
+                if is_iced: obj.y += obj.vy * 0.25; obj.x += obj.vx * 0.25
+                else: obj.move()
             obj.draw(game_surf)
             if obj.y > HEIGHT + 100:
                 if not is_iced and obj.type not in ["bombe", "loto", "ice block"] and current_sub_mode == "CLASSIC": vies -= 1
@@ -193,7 +208,6 @@ while running:
         shake_off = [random.randint(-shake_amount, shake_amount), random.randint(-shake_amount, shake_amount)] if shake_amount > 0 else [0,0]
         shake_amount = max(0, shake_amount - 1); screen.blit(game_surf, shake_off)
 
-        # Overlays
         if is_iced and not is_frozen:
             ice_ov = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); ice_ov.fill((100, 200, 255, 90)); screen.blit(ice_ov, (0,0))
             pygame.draw.rect(screen, WHITE, (0,0, WIDTH, HEIGHT), 8)
@@ -212,11 +226,42 @@ while running:
                 for i, m in enumerate(found_words[-10:]):
                     screen.blit(font_small.render(f"OK - {m}", True, GREEN), (45, y_s + 30 + i * 22))
 
-        # HUD
         info = f"Score: {score} | " + (f"Vies: {vies}" if current_sub_mode == "CLASSIC" else f"Temps: {challenge_timer // 60}s")
         screen.blit(font_small.render(info, True, WHITE), (20, 20))
-        if current_sub_mode == "CLASSIC" and vies <= 0: game_mode = "MENU"
+        if current_sub_mode == "CLASSIC" and vies <= 0: game_mode = "GAMEOVER"
+
+    elif game_mode == "PAUSE":
+        # On affiche le jeu en fond mais assombri
+        screen.blit(game_surf, (0,0))
+        ov = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); ov.fill((0, 0, 0, 150)); screen.blit(ov, (0,0))
         
+        title = font_huge.render("PAUSE", True, YELLOW)
+        screen.blit(title, (WIDTH//2 - title.get_width()//2, 150))
+        sub = font_small.render("Voulez-vous quitter la partie ?", True, WHITE)
+        screen.blit(sub, (WIDTH//2 - sub.get_width()//2, 220))
+
+        for i, text in enumerate(["REPRENDRE", "QUITTER"]):
+            rect = pygame.Rect(WIDTH//2 - 150, 300 + i*80, 300, 60)
+            col = YELLOW if rect.collidepoint(mouse_pos) else WHITE
+            pygame.draw.rect(screen, col, rect, 2, border_radius=10)
+            btn = font_huge.render(text, True, col)
+            screen.blit(btn, btn.get_rect(center=rect.center))
+
+    elif game_mode == "GAMEOVER":
+        title = font_huge.render("PARTIE TERMINÉE", True, RED)
+        screen.blit(title, (WIDTH//2 - title.get_width()//2, 100))
+        score_txt = font_huge.render(f"SCORE FINAL: {score}", True, WHITE)
+        screen.blit(score_txt, (WIDTH//2 - score_txt.get_width()//2, 180))
+        best_txt = font_small.render(f"MEILLEUR SCORE: {high_score}", True, GOLD)
+        screen.blit(best_txt, (WIDTH//2 - best_txt.get_width()//2, 230))
+        for i, text in enumerate(["RECOMMENCER", "MENU"]):
+            rect = pygame.Rect(WIDTH//2 - 150, 300 + i*80, 300, 60)
+            col = YELLOW if rect.collidepoint(mouse_pos) else WHITE
+            pygame.draw.rect(screen, col, rect, 2, border_radius=10)
+            btn_font = font_letter if text == "RECOMMENCER" else font_huge
+            btn = btn_font.render(text, True, col)
+            screen.blit(btn, btn.get_rect(center=rect.center))
+
     else: # MENU
         title = font_huge.render("FRUIT NINJA ULTIMATE", True, WHITE)
         screen.blit(title, (WIDTH//2 - title.get_width()//2, 120))
@@ -225,7 +270,7 @@ while running:
             col = (GREEN if i==0 else RED) if rect.collidepoint(mouse_pos) else WHITE
             pygame.draw.rect(screen, col, rect, 2, border_radius=10)
             btn = font_huge.render(text, True, col)
-            screen.blit(btn, (WIDTH//2 - btn.get_width()//2, 260 + i*80))
+            screen.blit(btn, btn.get_rect(center=rect.center))
 
     pygame.display.flip()
     clock.tick(60)
