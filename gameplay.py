@@ -300,6 +300,31 @@ class GameObject:
         color = PURPLE if self.type == "loto" else (ICE_BLUE if self.type == "ice block" else YELLOW)
         txt = font_letter.render(self.letter.upper(), True, color); surf.blit(txt, (self.x + 15, self.y + 60))
 
+# --- Système de sauvegarde ---
+def load_highscores():
+    """Charge les meilleurs scores depuis le fichier"""
+    if os.path.exists("highscores.txt"):
+        with open("highscores.txt", "r", encoding="utf-8") as f:
+            scores = []
+            for line in f:
+                parts = line.strip().split("|")
+                if len(parts) == 3:
+                    scores.append({"name": parts[0], "mode": parts[1], "score": int(parts[2])})
+            return scores
+    return []
+
+def save_highscore(name, mode, score):
+    """Sauvegarde un nouveau score"""
+    scores = load_highscores()
+    scores.append({"name": name, "mode": mode, "score": score})
+    # Trier par score décroissant et garder les 10 meilleurs
+    scores.sort(key=lambda x: x["score"], reverse=True)
+    scores = scores[:10]
+    
+    with open("highscores.txt", "w", encoding="utf-8") as f:
+        for s in scores:
+            f.write(f"{s['name']}|{s['mode']}|{s['score']}\n")
+
 # --- Variables Globales ---
 game_mode = "MENU"
 current_sub_mode = "CLASSIC"
@@ -307,6 +332,9 @@ active_objects, slices, particles, slashes, found_words = [], [], [], [], []
 score, vies, speed_multiplier, shake_amount = 0, 3, 1.0, 0
 challenge_timer = 60 * 60
 is_frozen, is_iced, freeze_timer, ice_timer, input_text = False, False, 0, 0, ""
+player_name = ""
+name_input_active = False
+selected_mode = ""
 
 SPAWN_EVENT = pygame.USEREVENT + 1
 pygame.time.set_timer(SPAWN_EVENT, 900)
@@ -318,6 +346,13 @@ def reset_game(mode):
     is_frozen = is_iced = False
     active_objects, slices, particles, found_words = [], [], [], []
 
+def end_game():
+    """Termine la partie et sauvegarde le score"""
+    global game_mode, player_name, current_sub_mode, score
+    if player_name.strip():
+        save_highscore(player_name, current_sub_mode, score)
+    game_mode = "MENU"
+
 # --- Boucle ---
 running = True
 while running:
@@ -326,10 +361,28 @@ while running:
     
     for event in pygame.event.get():
         if event.type == pygame.QUIT: running = False
+        
+        if game_mode == "NAME_INPUT" and event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_RETURN and player_name.strip():
+                reset_game(selected_mode)
+            elif event.key == pygame.K_BACKSPACE:
+                player_name = player_name[:-1]
+            elif event.key == pygame.K_ESCAPE:
+                game_mode = "MENU"
+                player_name = ""
+            elif len(player_name) < 15 and event.unicode.isprintable():
+                player_name += event.unicode
+        
         if game_mode == "MENU" and event.type == pygame.MOUSEBUTTONDOWN:
             if WIDTH//2 - 150 < mouse_pos[0] < WIDTH//2 + 150:
-                if 250 < mouse_pos[1] < 310: reset_game("CLASSIC")
-                elif 330 < mouse_pos[1] < 390: reset_game("CHALLENGE")
+                if 250 < mouse_pos[1] < 310:
+                    game_mode = "NAME_INPUT"
+                    selected_mode = "CLASSIC"
+                    player_name = ""
+                elif 330 < mouse_pos[1] < 390:
+                    game_mode = "NAME_INPUT"
+                    selected_mode = "CHALLENGE"
+                    player_name = ""
 
         if game_mode == "PLAY" and event.type == pygame.KEYDOWN:
             if is_frozen:
@@ -384,7 +437,7 @@ while running:
             
             if current_sub_mode == "CHALLENGE":
                 challenge_timer -= 1
-                if challenge_timer <= 0: game_mode = "MENU"
+                if challenge_timer <= 0: end_game()
 
         # Effets & Objets
         for p in particles[:]: p.update(); p.draw(game_surf); (particles.remove(p) if p.life <= 0 else None)
@@ -425,9 +478,30 @@ while running:
                     screen.blit(font_small.render(f"OK - {m}", True, GREEN), (45, y_s + 30 + i * 22))
 
         # HUD
-        info = f"Score: {score} | " + (f"Vies: {vies}" if current_sub_mode == "CLASSIC" else f"Temps: {challenge_timer // 60}s")
+        info = f"Joueur: {player_name} | Score: {score} | " + (f"Vies: {vies}" if current_sub_mode == "CLASSIC" else f"Temps: {challenge_timer // 60}s")
         screen.blit(font_small.render(info, True, WHITE), (20, 20))
-        if current_sub_mode == "CLASSIC" and vies <= 0: game_mode = "MENU"
+        if current_sub_mode == "CLASSIC" and vies <= 0: end_game()
+        
+    elif game_mode == "NAME_INPUT":
+        # Écran de saisie du nom
+        title = font_huge.render("ENTREZ VOTRE NOM", True, WHITE)
+        screen.blit(title, (WIDTH//2 - title.get_width()//2, 150))
+        
+        mode_text = f"Mode: {selected_mode}"
+        mode_render = font_small.render(mode_text, True, YELLOW)
+        screen.blit(mode_render, (WIDTH//2 - mode_render.get_width()//2, 210))
+        
+        # Boîte de saisie
+        pygame.draw.rect(screen, WHITE, (WIDTH//2 - 200, HEIGHT//2 - 30, 400, 60), 2, border_radius=10)
+        name_render = font_huge.render(player_name + "_", True, WHITE)
+        screen.blit(name_render, (WIDTH//2 - name_render.get_width()//2, HEIGHT//2 - 22))
+        
+        # Instructions
+        instr = font_small.render("Appuyez sur ENTRÉE pour commencer", True, GREEN)
+        screen.blit(instr, (WIDTH//2 - instr.get_width()//2, HEIGHT//2 + 60))
+        
+        esc_text = font_small.render("ESC pour annuler", True, RED)
+        screen.blit(esc_text, (WIDTH//2 - esc_text.get_width()//2, HEIGHT//2 + 90))
         
     else: # MENU
         title = font_huge.render("FRUIT NINJA ULTIMATE", True, WHITE)
@@ -438,6 +512,18 @@ while running:
             pygame.draw.rect(screen, col, rect, 2, border_radius=10)
             btn = font_huge.render(text, True, col)
             screen.blit(btn, (WIDTH//2 - btn.get_width()//2, 260 + i*80))
+        
+        # Afficher les meilleurs scores
+        highscores = load_highscores()
+        if highscores:
+            y_start = 450
+            hs_title = font_small.render("MEILLEURS SCORES", True, GOLD)
+            screen.blit(hs_title, (WIDTH//2 - hs_title.get_width()//2, y_start))
+            
+            for i, hs in enumerate(highscores[:5]):  # Top 5
+                score_text = f"{i+1}. {hs['name']} - {hs['mode']}: {hs['score']}"
+                score_render = font_small.render(score_text, True, WHITE)
+                screen.blit(score_render, (WIDTH//2 - score_render.get_width()//2, y_start + 30 + i * 22))
 
     pygame.display.flip()
     clock.tick(60)
