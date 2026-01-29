@@ -20,11 +20,14 @@ YELLOW, RED, GREEN, WHITE = (
 GOLD, ICE_BLUE = (255, 215, 0), (100, 200, 255)
 ORANGE_ELECTR = (255, 165, 0)
 
+combo_timer = 0
+combo_count = 0
+COMBO_THRESHOLD = 30  # Environ 0.5 seconde à 60 FPS
 
 def get_font(size):
     return pygame.font.SysFont(["impact", "arialblack", "arial"], size)
 
-
+# --- Fonts ---
 font_letter = get_font(35)
 font_small = get_font(22)
 font_huge = get_font(50)
@@ -228,15 +231,24 @@ class GameObject:
 
 def trigger_bonus_cut(color_p=WHITE):
     global score
+    # On identifie uniquement les fruits (pas les bombes)
+    fruits_a_trancher = [o for o in active_objects if o.type != "bombe"]
+    nb = len(fruits_a_trancher)
     for o in active_objects[:]:
         if o.type != "bombe":
+           # Calcul du score selon ta règle :
+            # Si 3 fruits -> +2 points | Si 4 fruits -> +3 points
+            if color_p == GOLD and nb > 1:
+                score += (nb - 1)
+            else:
+                # Pour les autres bonus (eclair, spinner) ou si 1 seul fruit
+                score += nb
             slices.extend(
                 [
                     FruitSlice(o.image_orig, o.x, o.y, "left"),
                     FruitSlice(o.image_orig, o.x, o.y, "right"),
                 ]
             )
-            score += 20 if is_overcharged else 10
             for _ in range(3):
                 particles.append(Particle(o.x + 30, o.y + 30, color_p))
             active_objects.remove(o)
@@ -299,96 +311,97 @@ while running:
 
         if event.type == pygame.KEYDOWN:
             if game_mode == "PLAY":
+                if combo_timer > 0:
+                    combo_timer -= 1
                 if event.key == pygame.K_ESCAPE:
                     game_mode = "PAUSE"
                 else:
                     key = pygame.key.name(event.key).lower()
-                    # 1. Définition des zones de touches
-                    TOUCHES_BONUS = ["q", "s", "d", "f"]
-                    TOUCHES_FRUITS = ["j", "k", "l", "m"]
-                    if (
-                        event.key == pygame.K_SPACE
-                        and is_overcharged
-                        and grand_slash_gauge >= MAX_GRAND_SLASH
-                    ):
-                        slashes.append(
-                            {
-                                "start": (0, HEIGHT // 2),
-                                "end": (WIDTH, HEIGHT // 2),
-                                "life": 255,
-                            }
-                        )
+                    TOUCHES_BONUS = ["a", "w", "s", "d"]
+                    TOUCHES_FRUITS = ["j", "k", "l"]
+                    
+                    # Capacité spéciale "Grand Slash"
+                    if event.key == pygame.K_SPACE and is_overcharged and grand_slash_gauge >= MAX_GRAND_SLASH:
+                        slashes.append({"start": (0, HEIGHT // 2), "end": (WIDTH, HEIGHT // 2), "life": 255})
                         trigger_bonus_cut(ORANGE_ELECTR)
                         grand_slash_gauge = 0
                         shake_amount = 25
 
+                    # Vérification des objets actifs
                     for obj in active_objects[:]:
-                        est_bonus = obj.type in [
-                            "ice block",
-                            "eclair",
-                            "spinner",
-                            "bombe",
-                        ]
-                        # 2. Vérification de la correspondance Touche <-> Type d'objet
-                        valide = False
-                        if est_bonus and key in TOUCHES_BONUS:
-                            valide = obj.letter == key
+                        est_bonus = obj.type in ["ice block", "eclair", "spinner", "bombe"]
+                        
+                        # LOGIQUE : Est-ce la bonne touche pour le bon type d'objet ?
+                        hit = False
+                        if is_overcharged: # En surcharge, n'importe quelle lettre fonctionne !
+                            hit = (key == obj.letter)
+                        elif est_bonus and key in TOUCHES_BONUS:
+                            hit = (key == obj.letter)
                         elif not est_bonus and key in TOUCHES_FRUITS:
-                            valide = obj.letter == key
-                        if (is_overcharged and event.unicode.isalpha()) or (
-                            obj.letter == key
-                        ):
+                            hit = (key == obj.letter)
+
+                        if hit:
                             obj.hp -= 1
+                           # --- Remplacez la partie de détection de destruction (hp <= 0) par ceci ---
                             if obj.hp <= 0:
-                                if obj.is_enrobed:
-                                    flash_timer, shake_amount, score = (
-                                        10,
-                                        25,
-                                        score + (100 if is_overcharged else 50),
-                                    )
+                                if obj.type == "bombe":
+                                    # DEFAITE IMMEDIATE
+                                    vies = 0 
+                                    shake_amount = 50
+                                    # On force la fin de partie au prochain tour de boucle
+                                    game_mode = "GAMEOVER" 
+                                    
+                                elif obj.is_enrobed:
+                                    # Même enrobé d'or, il ne rapporte maintenant qu'un point selon votre règle
+                                    score += 1
+                                    flash_timer, shake_amount = 10, 25
                                     trigger_bonus_cut(GOLD)
+                                    
                                 elif obj.type == "eclair":
+                                    score += 1 # 1 point pour le bonus aussi
                                     is_overcharged, overcharge_timer = True, 300
+                                    
                                 elif obj.type == "spinner":
-                                    slashes.append(
-                                        {
-                                            "start": (0, obj.y + 30),
-                                            "end": (WIDTH, obj.y + 30),
-                                            "life": 255,
-                                        }
-                                    )
+                                    score += 1
+                                    slashes.append({
+                                        "start": (0, obj.y + 30),
+                                        "end": (WIDTH, obj.y + 30),
+                                        "life": 255,
+                                    })
                                     trigger_bonus_cut(WHITE)
+                                    
                                 elif obj.type == "ice block":
-                                    is_iced, ice_timer = True, 400
-                                elif obj.type == "bombe":
-                                    if current_sub_mode == "CLASSIC":
-                                        vies -= 1
-                                    else:
-                                        score = max(0, score - 50)
-                                    shake_amount = 30
+                                    score += 1
+                                    is_iced, ice_timer = True, 300
+                                    
                                 else:
-                                    score += 20 if is_overcharged else 10
+                                    # Fruit normal
+                                    # --- Logique de Combo ---
+                                    if combo_timer > 0:
+                                        # Si on tranche un fruit alors que le timer est actif, on double !
+                                        score += 2
+                                        combo_count += 1
+                                    else:
+                                        # Premier fruit ou timer expiré
+                                        score += 1
+                                        combo_count = 1
+
+                                    combo_timer = COMBO_THRESHOLD # On relance le timer à chaque fruit tranché
+                                    # On garde la jauge pour le fun, mais elle n'ajoute plus de points bonus
                                     if is_overcharged:
-                                        grand_slash_gauge = min(
-                                            MAX_GRAND_SLASH, grand_slash_gauge + 10
-                                        )
-                                    slices.extend(
-                                        [
-                                            FruitSlice(
-                                                obj.image_orig, obj.x, obj.y, "left"
-                                            ),
-                                            FruitSlice(
-                                                obj.image_orig, obj.x, obj.y, "right"
-                                            ),
-                                        ]
-                                    )
+                                        grand_slash_gauge = min(MAX_GRAND_SLASH, grand_slash_gauge + 10)
+                                    
+                                    # Création de l'effet visuel de découpe
+                                    slices.extend([
+                                        FruitSlice(obj.image_orig, obj.x, obj.y, "left"),
+                                        FruitSlice(obj.image_orig, obj.x, obj.y, "right"),
+                                    ])
                                     for _ in range(4):
-                                        particles.append(
-                                            Particle(obj.x + 30, obj.y + 30)
-                                        )
+                                        particles.append(Particle(obj.x + 30, obj.y + 30))
+
                                 if obj in active_objects:
                                     active_objects.remove(obj)
-                            break
+                            break # On ne traite qu'un objet par pression de touche
             elif game_mode == "PAUSE" and event.key == pygame.K_ESCAPE:
                 game_mode = "PLAY"
 
@@ -508,16 +521,16 @@ while running:
             ice_ov.fill((100, 200, 255, 60))
             screen.blit(ice_ov, (0, 0))
 
+        # Affichage du score
+        score_text = f"SCORE: {score}"
+        if combo_timer > 0 and combo_count > 1:
+            score_text += f" | COMBO X2 ({combo_count}) !"
+
         screen.blit(
             font_small.render(
-                f"SCORE: {score} | "
-                + (
-                    f"VIES: {vies}"
-                    if current_sub_mode == "CLASSIC"
-                    else f"TPS: {challenge_timer//60}s"
-                ),
+                score_text + " | " + (f"VIES: {vies}" if current_sub_mode == "CLASSIC" else f"TPS: {challenge_timer//60}s"),
                 True,
-                WHITE,
+                (255, 215, 0) if combo_timer > 0 else WHITE, # Devient doré en combo
             ),
             (20, 20),
         )
