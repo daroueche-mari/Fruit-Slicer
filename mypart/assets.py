@@ -10,6 +10,28 @@ font_letter = get_font(35)
 font_small = get_font(22)
 font_huge = get_font(50)
 
+def load_sounds():
+    pygame.mixer.init()
+    sounds = {}
+    sound_files = {
+        "ice": "ice.wav",
+        "lightning": "lightning.wav",
+        "slash": "slash.wav",
+        "bomb": "bomb.wav",
+        "halo": "halo.wav",
+        "fruit_cut": "fruit.wav",
+    }
+    
+    for name, file in sound_files.items():
+        try:
+            sounds[name] = pygame.mixer.Sound(file)
+        except:
+            # Si le fichier manque, on crée un objet vide pour éviter que le jeu plante
+            sounds[name] = None 
+            print(f"Attention : Son {file} non trouvé")
+    return sounds
+
+
 # --- Liste des images (Clés en anglais) ---
 def load_game_assets():
     IMAGES_LIST = {

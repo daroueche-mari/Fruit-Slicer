@@ -2,10 +2,11 @@ import pygame
 import random
 from settings import *
 from models import GameObject, LightningEffect, Particle, FruitSlice
-from assets import font_small, font_huge, load_game_assets
+from assets import font_small, font_huge, load_game_assets, load_sounds, load_backgrounds
 
 # --- Configuration ---
 pygame.init()
+sounds = load_sounds()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 game_surface = pygame.Surface((WIDTH, HEIGHT))
 pygame.display.set_caption("Fruit Ninja Ultimate - Fast Edition")
@@ -59,7 +60,10 @@ def reset_game(mode):
     overcharge_timer = special_gauge = 0
     active_objects, slices, particles, slashes, lightning_effects = [], [], [], [], []
 
-
+# Dans main.py avant la boucle
+pygame.mixer.music.load("mainsong.mp3")
+pygame.mixer.music.set_volume(0.5)
+pygame.mixer.music.play(-1) # -1 pour jouer en boucle
 # --- Boucle de Jeu ---
 running = True
 while running:
@@ -117,6 +121,7 @@ while running:
                             }
                         )
                         trigger_area_cut(ELECTRIC_ORANGE)
+                        if sounds["slash"]: sounds["slash"].play()
                         special_gauge = 0
                         shake_intensity = 25
 
@@ -134,17 +139,21 @@ while running:
                             obj.hp -= 1
                             if obj.hp <= 0:
                                 if obj.type == "bomb":
+                                    if sounds["bomb"]: sounds["bomb"].play()
                                     lives = 0
                                     shake_intensity = 50
                                     game_state = "GAMEOVER"
                                 elif obj.is_enrobed:
+                                    if sounds["halo"]: sounds["halo"].play()
                                     score += 1
                                     flash_timer, shake_intensity = 10, 25
                                     trigger_area_cut(GOLD)
                                 elif obj.type == "lightning":
+                                    if sounds["lightning"]: sounds["lightning"].play()
                                     score += 1
                                     is_overcharged, overcharge_timer = True, 300
                                 elif obj.type == "shuriken":
+                                    if sounds["slash"]: sounds["slash"].play()
                                     score += 1
                                     slashes.append(
                                         {
@@ -155,10 +164,12 @@ while running:
                                     )
                                     trigger_area_cut(WHITE)
                                 elif obj.type == "ice_block":
+                                    if sounds["ice"]: sounds["ice"].play()
                                     score += 1
                                     is_iced, ice_timer = True, 300
                                 else:
                                     # Fruit classique + Combo
+                                    if sounds["fruit_cut"]: sounds["fruit_cut"].play()
                                     if combo_timer > 0:
                                         score += 2
                                         combo_count += 1
@@ -231,6 +242,7 @@ while running:
                         }
                     )
                     trigger_area_cut(ELECTRIC_ORANGE)
+                    if sounds["slash"]: sounds["slash"].play()
                     shake_intensity = 25
                 elif random.random() < 0.2:
                     lightning_effects.append(LightningEffect())
