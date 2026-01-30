@@ -1,6 +1,3 @@
-My Code is in the folder 'MyPart'
-
-
 # Fruit-Slicer
 🍎 Fruit Ninja Ultimate - Typing Edition
 Une version revisitée du célèbre jeu Fruit Ninja, alliant réflexes et dactylographie. Tranchez des fruits en tapant les lettres correspondantes sur votre clavier et survivez aux vagues de plus en plus rapides !
