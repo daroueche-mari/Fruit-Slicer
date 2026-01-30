@@ -9,7 +9,7 @@ Système de Bonus Varié :
 
 ∞ Loto (Mode Dictionnaire) : Tranchez le fruit "Infini" pour figer le temps. Saisissez des mots valides du dictionnaire pour accumuler des points bonus.
 
-❄️ Ice Block : Ralentit considérablement tous les objets à l'écran et vous protège contre la perte de vies.
+❄️ Ice Block : Arrete tous les objets à l'écran et vous protège contre la perte de vies.
 
 🌀 Shuriken (Spinner) : Déclenche une attaque spéciale qui tranche instantanément tous les fruits visibles.
 
