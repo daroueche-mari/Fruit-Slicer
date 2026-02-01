@@ -1,5 +1,7 @@
 import pygame
 import random
+import json
+import os
 from settings import *
 from models import GameObject, LightningEffect, Particle, FruitSlice
 from assets import font_small, font_huge, load_game_assets, load_sounds
@@ -14,6 +16,53 @@ clock = pygame.time.Clock()
 
 image_data = load_game_assets()
 
+# --- Leaderboard (fichier JSON persistant) ---
+LEADERBOARD_FILE = "leaderboard.json"
+MAX_LEADERBOARD_ENTRIES = 10
+
+
+def load_leaderboard():
+    """Charge le tableau des scores depuis le fichier JSON"""
+    if os.path.exists(LEADERBOARD_FILE):
+        try:
+            with open(LEADERBOARD_FILE, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return []
+    return []
+
+
+def save_leaderboard(leaderboard):
+    """Sauvegarde le tableau des scores dans le fichier JSON"""
+    with open(LEADERBOARD_FILE, "w") as f:
+        json.dump(leaderboard, f, indent=2)
+
+
+def add_to_leaderboard(name, score, mode):
+    """Ajoute une entrée au tableau et trie par score décroissant"""
+    leaderboard = load_leaderboard()
+    leaderboard.append({"name": name, "score": score, "mode": mode})
+    leaderboard.sort(key=lambda x: x["score"], reverse=True)
+    leaderboard = leaderboard[:MAX_LEADERBOARD_ENTRIES]
+    save_leaderboard(leaderboard)
+    return leaderboard
+
+
+def get_player_rank(name, score, mode):
+    """Retourne le rang du joueur (1-indexé) ou None si pas dans le top"""
+    leaderboard = load_leaderboard()
+    for i, entry in enumerate(leaderboard):
+        if entry["name"] == name and entry["score"] == score and entry["mode"] == mode:
+            return i + 1
+    return None
+
+
+def is_name_taken(name):
+    """Vérifie si le nom existe déjà dans le leaderboard"""
+    leaderboard = load_leaderboard()
+    return any(entry["name"] == name for entry in leaderboard)
+
+
 # --- Variables Globales ---
 game_state = "MENU"
 sub_mode, score, lives = "CLASSIC", 0, 3
@@ -22,6 +71,13 @@ speed_multiplier, shake_intensity, flash_timer = 1.0, 0, 0
 challenge_timer, is_iced, ice_timer = 3600, False, 0
 is_overcharged, overcharge_timer, special_gauge = False, 0, 0
 MAX_GAUGE = 100
+
+# --- Variables pour l'écran USERNAME ---
+current_username = ""          # Nom en cours de saisie
+saved_username = ""            # Dernier nom validé (pour le remplir par défaut)
+pending_mode = "CLASSIC"       # Le mode à lancer après la saisie du nom
+username_input_active = True   # Pour gérer le focus de l'input
+username_error = ""            # Message d'erreur affiché sur l'écran USERNAME
 
 SPAWN_EVENT = pygame.USEREVENT + 1
 pygame.time.set_timer(SPAWN_EVENT, 900)
@@ -53,7 +109,9 @@ def trigger_area_cut(particle_color=WHITE):
 
 def reset_game(mode):
     """Réinitialise la partie"""
-    global game_state, sub_mode, score, lives, speed_multiplier, challenge_timer, active_objects, slices, particles, slashes, flash_timer, is_overcharged, overcharge_timer, special_gauge, lightning_effects, is_iced
+    global game_state, sub_mode, score, lives, speed_multiplier, challenge_timer
+    global active_objects, slices, particles, slashes, flash_timer
+    global is_overcharged, overcharge_timer, special_gauge, lightning_effects, is_iced
     game_state, sub_mode = "PLAY", mode
     score, lives, speed_multiplier, challenge_timer, flash_timer = 0, 3, 1.0, 3600, 0
     is_iced = is_overcharged = False
@@ -61,10 +119,22 @@ def reset_game(mode):
     active_objects, slices, particles, slashes, lightning_effects = [], [], [], [], []
 
 
+def go_to_username_screen(mode):
+    """Transition vers l'écran de saisie du nom avant de lancer une partie"""
+    global game_state, pending_mode, current_username, username_input_active, username_error
+    game_state = "USERNAME"
+    pending_mode = mode
+    current_username = saved_username  # Pré-remplir avec le dernier nom utilisé
+    username_input_active = True
+    username_error = ""
+    pygame.key.start_text_input()
+
+
 # Dans main.py avant la boucle
 pygame.mixer.music.load("sound/mainsong.mp3")
 pygame.mixer.music.set_volume(0.5)
 pygame.mixer.music.play(-1)  # -1 pour jouer en boucle
+
 # --- Boucle de Jeu ---
 running = True
 while running:
@@ -75,13 +145,42 @@ while running:
         if event.type == pygame.QUIT:
             running = False
 
+        # --- Gestion de la saisie de texte pour USERNAME ---
+        if game_state == "USERNAME":
+            if event.type == pygame.TEXTINPUT:
+                # On n'accepte que des caractères alphanumériques et espaces
+                filtered = "".join(c for c in event.text if c.isalnum() or c == " ")
+                if len(current_username) + len(filtered) <= 16:
+                    current_username += filtered
+                    username_error = ""  # Effacer l'erreur dès que le texte change
+
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_BACKSPACE:
+                    current_username = current_username[:-1]
+                elif event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+                    # Valider le nom et lancer la partie
+                    if current_username.strip():
+                        if is_name_taken(current_username.strip()) and current_username.strip() != saved_username:
+                            username_error = "Ce nom est déjà utilisé !"
+                        else:
+                            username_error = ""
+                            saved_username = current_username.strip()
+                            pygame.key.stop_text_input()
+                            reset_game(pending_mode)
+                    # Si le nom est vide, on ne fait rien (on reste sur l'écran)
+                elif event.key == pygame.K_ESCAPE:
+                    # Annuler et retour au menu
+                    pygame.key.stop_text_input()
+                    game_state = "MENU"
+            continue  # On ne traite pas les autres événements sur cet écran
+
         if event.type == pygame.MOUSEBUTTONDOWN:
             if game_state == "MENU":
                 if WIDTH // 2 - 150 < mouse_pos[0] < WIDTH // 2 + 150:
                     if 280 < mouse_pos[1] < 340:
-                        reset_game("CLASSIC")
+                        go_to_username_screen("CLASSIC")
                     elif 370 < mouse_pos[1] < 430:
-                        reset_game("CHALLENGE")
+                        go_to_username_screen("CHALLENGE")
             elif game_state == "PAUSE":
                 if pygame.Rect(WIDTH // 2 - 150, 300, 300, 60).collidepoint(mouse_pos):
                     game_state = "PLAY"
@@ -90,11 +189,21 @@ while running:
                 ):
                     game_state = "MENU"
             elif game_state == "GAMEOVER":
-                if pygame.Rect(WIDTH // 2 - 150, 320, 300, 60).collidepoint(mouse_pos):
-                    reset_game(sub_mode)
-                elif pygame.Rect(WIDTH // 2 - 150, 410, 300, 60).collidepoint(
-                    mouse_pos
-                ):
+                # Bouton : voir le tableau des scores
+                if pygame.Rect(WIDTH // 2 - 150, 280, 300, 60).collidepoint(mouse_pos):
+                    game_state = "LEADERBOARD"
+                # Bouton : recommencer (va d'abord demander le nom)
+                elif pygame.Rect(WIDTH // 2 - 150, 370, 300, 60).collidepoint(mouse_pos):
+                    go_to_username_screen(sub_mode)
+                # Bouton : retour au menu
+                elif pygame.Rect(WIDTH // 2 - 150, 460, 300, 60).collidepoint(mouse_pos):
+                    game_state = "MENU"
+            elif game_state == "LEADERBOARD":
+                # Bouton : recommencer depuis le leaderboard
+                if pygame.Rect(WIDTH // 2 - 310, HEIGHT - 140, 300, 50).collidepoint(mouse_pos):
+                    go_to_username_screen(sub_mode)
+                # Bouton : retour au menu depuis le leaderboard
+                elif pygame.Rect(WIDTH // 2 + 10, HEIGHT - 140, 300, 50).collidepoint(mouse_pos):
                     game_state = "MENU"
 
         if event.type == pygame.KEYDOWN:
@@ -145,6 +254,8 @@ while running:
                                         sounds["bomb"].play()
                                     lives = 0
                                     shake_intensity = 50
+                                    # Enregistrer le score avant GAMEOVER
+                                    add_to_leaderboard(saved_username, score, sub_mode)
                                     game_state = "GAMEOVER"
                                 elif obj.is_enrobed:
                                     if sounds["halo"]:
@@ -235,6 +346,8 @@ while running:
                 if sub_mode == "CHALLENGE":
                     challenge_timer -= 1
                     if challenge_timer <= 0:
+                        # Temps écoulé en Challenge : enregistrer le score
+                        add_to_leaderboard(saved_username, score, sub_mode)
                         game_state = "GAMEOVER"
 
             if is_overcharged:
@@ -256,7 +369,6 @@ while running:
                     lightning_effects.append(LightningEffect())
 
             # 2. Animations (Particules et morceaux de fruits)
-            # On les laisse en dehors du "if not is_iced" pour qu'ils tombent toujours
             for p in particles[:]:
                 p.update()
                 if p.life <= 0:
@@ -269,11 +381,9 @@ while running:
 
             # 3. Mouvement des objets principaux (Fruits non coupés)
             for obj in active_objects[:]:
-                # Ils se figent grâce à is_slowed=is_iced (si factor=0 dans la classe)
                 obj.move(is_slowed=is_iced)
 
                 if obj.y > HEIGHT + 100:
-                    # On ne perd des vies que si le temps n'est pas figé
                     if not is_iced and not is_overcharged:
                         if (
                             obj.type not in ["bomb", "ice_block", "lightning"]
@@ -346,9 +456,13 @@ while running:
             + (
                 f"VIES: {lives}"
                 if sub_mode == "CLASSIC"
-                else f"TEMPS: {challenge_timer//60}s"
+                else f"TEMPS: {challenge_timer // 60}s"
             )
         )
+        # Afficher le nom du joueur en haut à droite
+        name_text = font_small.render(f"Joueur: {saved_username}", True, (180, 180, 255))
+        screen.blit(name_text, (WIDTH - name_text.get_width() - 20, 20))
+
         screen.blit(
             font_small.render(
                 hud_text, True, (255, 215, 0) if combo_timer > 0 else WHITE
@@ -370,34 +484,241 @@ while running:
                 screen.blit(btn, btn.get_rect(center=rect.center))
 
         if sub_mode == "CLASSIC" and lives <= 0:
+            # Enregistrer le score avant GAMEOVER (si pas déjà fait par la bomba)
+            if game_state != "GAMEOVER":
+                add_to_leaderboard(saved_username, score, sub_mode)
             game_state = "GAMEOVER"
 
+    # --- Écran USERNAME ---
+    elif game_state == "USERNAME":
+        # Fond semi-transparent sur DARK_BLUE
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 30, 200))
+        screen.blit(overlay, (0, 0))
+
+        # Titre
+        titre = font_huge.render("ENTRER VOTRE NOM", True, WHITE)
+        screen.blit(titre, titre.get_rect(center=(WIDTH // 2, 140)))
+
+        # Sous-titre (mode à lancer)
+        mode_label = "Mode : CLASSIQUE" if pending_mode == "CLASSIC" else "Mode : CHALLENGE"
+        sous_titre = font_small.render(mode_label, True, (180, 180, 255))
+        screen.blit(sous_titre, sous_titre.get_rect(center=(WIDTH // 2, 200)))
+
+        # Zone d'input (rectangle arrondi)
+        input_rect = pygame.Rect(WIDTH // 2 - 200, 260, 400, 60)
+        pygame.draw.rect(screen, (40, 40, 70), input_rect, border_radius=12)
+        pygame.draw.rect(screen, (100, 100, 180), input_rect, 2, border_radius=12)
+
+        # Texte dans l'input
+        if current_username:
+            input_text = font_huge.render(current_username, True, WHITE)
+        else:
+            input_text = font_huge.render("...", True, (100, 100, 100))  # placeholder
+        screen.blit(input_text, input_text.get_rect(center=input_rect.center))
+
+        # Curseur clignotant
+        cursor_visible = (pygame.time.get_ticks() // 500) % 2 == 0
+        if cursor_visible:
+            cursor_x = input_rect.centerx + input_text.get_width() // 2 + 4
+            if not current_username:
+                cursor_x = input_rect.centerx - 8
+            pygame.draw.line(screen, WHITE, (cursor_x, input_rect.top + 10), (cursor_x, input_rect.bottom - 10), 2)
+
+        # Instructions
+        instruct1 = font_small.render("Tapez votre nom puis appuyez sur ENTRÉE", True, (180, 180, 180))
+        screen.blit(instruct1, instruct1.get_rect(center=(WIDTH // 2, 350)))
+        instruct2 = font_small.render("(16 caractères max — ESC pour annuler)", True, (120, 120, 120))
+        screen.blit(instruct2, instruct2.get_rect(center=(WIDTH // 2, 380)))
+
+        # Message d'erreur (nom déjà pris)
+        if username_error:
+            err_surf = font_small.render(username_error, True, RED)
+            screen.blit(err_surf, err_surf.get_rect(center=(WIDTH // 2, 410)))
+
+        # Bouton Valider (visuel, mais la validation se fait avec ENTRÉE)
+        valider_rect = pygame.Rect(WIDTH // 2 - 100, 430, 200, 55)
+        can_validate = len(current_username.strip()) > 0
+        if can_validate:
+            btn_col = YELLOW if valider_rect.collidepoint(mouse_pos) else GREEN
+        else:
+            btn_col = (80, 80, 80)  # grisé si vide
+        pygame.draw.rect(screen, btn_col, valider_rect, border_radius=10)
+        pygame.draw.rect(screen, WHITE, valider_rect, 2, border_radius=10)
+        valider_txt = font_small.render("VALIDER", True, WHITE)
+        screen.blit(valider_txt, valider_txt.get_rect(center=valider_rect.center))
+
+        # Click sur le bouton Valider avec la souris
+        if pygame.mouse.get_pressed()[0] and valider_rect.collidepoint(mouse_pos) and can_validate:
+            if is_name_taken(current_username.strip()) and current_username.strip() != saved_username:
+                username_error = "Ce nom est déjà utilisé !"
+            else:
+                username_error = ""
+                saved_username = current_username.strip()
+                pygame.key.stop_text_input()
+                reset_game(pending_mode)
+
+    # --- GAMEOVER ---
     elif game_state == "GAMEOVER":
+        # Overlay sombre
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 160))
+        screen.blit(overlay, (0, 0))
+
+        # Titre
         txt = font_huge.render("PARTIE TERMINEE", True, RED)
-        screen.blit(txt, txt.get_rect(center=(WIDTH // 2, 120)))
-        score_txt = font_small.render(f"SCORE FINAL : {score}", True, WHITE)
-        screen.blit(score_txt, score_txt.get_rect(center=(WIDTH // 2, 200)))
-        for i, label in enumerate(["RECOMMENCER", "MENU"]):
-            rect = pygame.Rect(WIDTH // 2 - 150, 320 + i * 90, 300, 60)
+        screen.blit(txt, txt.get_rect(center=(WIDTH // 2, 100)))
+
+        # Nom du joueur et score
+        name_score = font_small.render(f"{saved_username} — SCORE FINAL : {score}", True, WHITE)
+        screen.blit(name_score, name_score.get_rect(center=(WIDTH // 2, 170)))
+
+        # Rank du joueur dans le leaderboard
+        rank = get_player_rank(saved_username, score, sub_mode)
+        if rank:
+            if rank == 1:
+                rank_color = (255, 215, 0)   # Or
+                rank_txt = f"🏆 NOUVEAU RECORD ! RANG #{rank}"
+            elif rank <= 3:
+                rank_color = (255, 165, 0)   # Bronze/Argent
+                rank_txt = f"⭐ RANG #{rank} AU TABLEAU !"
+            else:
+                rank_color = (100, 200, 255)
+                rank_txt = f"Rang #{rank} au tableau des scores"
+            rank_surface = font_small.render(rank_txt, True, rank_color)
+            screen.blit(rank_surface, rank_surface.get_rect(center=(WIDTH // 2, 220)))
+
+        # Boutons (3 boutons verticaux)
+        buttons_gameover = [
+            ("TABLEAU DES SCORES", (WIDTH // 2 - 150, 280)),
+            ("RECOMMENCER", (WIDTH // 2 - 150, 370)),
+            ("MENU", (WIDTH // 2 - 150, 460)),
+        ]
+        for label, (bx, by) in buttons_gameover:
+            rect = pygame.Rect(bx, by, 300, 60)
             col = YELLOW if rect.collidepoint(mouse_pos) else WHITE
             pygame.draw.rect(screen, col, rect, 2, border_radius=10)
             btn = font_small.render(label, True, col)
             screen.blit(btn, btn.get_rect(center=rect.center))
 
+    # --- LEADERBOARD ---
+    elif game_state == "LEADERBOARD":
+        leaderboard = load_leaderboard()
+
+        # Fond
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 20, 220))
+        screen.blit(overlay, (0, 0))
+
+        # Titre
+        titre = font_huge.render("TABLEAU DES SCORES", True, (255, 215, 0))
+        screen.blit(titre, titre.get_rect(center=(WIDTH // 2, 45)))
+
+        # En-têtes du tableau
+        headers = ["#", "NOM", "SCORE", "MODE"]
+        col_widths = [50, 220, 150, 160]
+        table_x = WIDTH // 2 - sum(col_widths) // 2
+        header_y = 90
+
+        # Ligne séparatrice sous le titre
+        pygame.draw.line(screen, (100, 100, 150), (table_x - 10, 80), (table_x + sum(col_widths) + 10, 80), 1)
+
+        # Afficher les en-têtes
+        x_offset = table_x
+        for i, header in enumerate(headers):
+            h_surf = font_small.render(header, True, (150, 150, 200))
+            screen.blit(h_surf, (x_offset + col_widths[i] // 2 - h_surf.get_width() // 2, header_y))
+            x_offset += col_widths[i]
+
+        pygame.draw.line(screen, (100, 100, 150), (table_x - 10, header_y + 28), (table_x + sum(col_widths) + 10, header_y + 28), 1)
+
+        # Afficher les entrées du leaderboard
+        row_height = 42
+        start_y = header_y + 40
+
+        if not leaderboard:
+            # Message si le tableau est vide
+            empty_txt = font_small.render("Aucun score enregistré pour le moment.", True, (120, 120, 120))
+            screen.blit(empty_txt, empty_txt.get_rect(center=(WIDTH // 2, start_y + 40)))
+        else:
+            for idx, entry in enumerate(leaderboard):
+                row_y = start_y + idx * row_height
+                rank_num = idx + 1
+
+                # Couleur de fond alternée pour la lisibilité
+                row_rect = pygame.Rect(table_x - 10, row_y - 4, sum(col_widths) + 20, row_height - 4)
+                if idx % 2 == 0:
+                    pygame.draw.rect(screen, (25, 25, 50), row_rect, border_radius=4)
+                else:
+                    pygame.draw.rect(screen, (35, 35, 65), row_rect, border_radius=4)
+
+                # Mettre en relief le joueur actuel
+                is_current = (entry["name"] == saved_username and entry["score"] == score and entry["mode"] == sub_mode)
+                if is_current:
+                    pygame.draw.rect(screen, (60, 60, 120), row_rect, border_radius=4)
+                    pygame.draw.rect(screen, (255, 215, 0), row_rect, 2, border_radius=4)
+
+                # Couleurs des rangs
+                if rank_num == 1:
+                    rank_color = (255, 215, 0)    # Or
+                elif rank_num == 2:
+                    rank_color = (192, 192, 192)  # Argent
+                elif rank_num == 3:
+                    rank_color = (205, 127, 50)   # Bronze
+                else:
+                    rank_color = WHITE
+
+                # Données à afficher
+                values = [
+                    str(rank_num),
+                    entry["name"],
+                    str(entry["score"]),
+                    entry["mode"]
+                ]
+
+                x_offset = table_x
+                for col_idx, val in enumerate(values):
+                    color = rank_color if col_idx == 0 else (WHITE if is_current else (220, 220, 220))
+                    cell_surf = font_small.render(val, True, color)
+                    cell_x = x_offset + col_widths[col_idx] // 2 - cell_surf.get_width() // 2
+                    screen.blit(cell_surf, (cell_x, row_y))
+                    x_offset += col_widths[col_idx]
+
+        # Boutons en bas
+        btn_y = HEIGHT - 140
+        btn_restart_rect = pygame.Rect(WIDTH // 2 - 310, btn_y, 300, 50)
+        btn_menu_rect = pygame.Rect(WIDTH // 2 + 10, btn_y, 300, 50)
+
+        for rect, label in [(btn_restart_rect, "RECOMMENCER"), (btn_menu_rect, "MENU")]:
+            col = YELLOW if rect.collidepoint(mouse_pos) else WHITE
+            pygame.draw.rect(screen, col, rect, 2, border_radius=10)
+            btn = font_small.render(label, True, col)
+            screen.blit(btn, btn.get_rect(center=rect.center))
+
+    # --- MENU ---
     else:  # MENU
         txt = font_huge.render("FRUIT SLICER ULTIMATE", True, WHITE)
         screen.blit(txt, txt.get_rect(center=(WIDTH // 2, 150)))
 
+        # Bouton vers le leaderboard depuis le menu (au-dessus des commandes)
+        lb_rect = pygame.Rect(WIDTH // 2 - 150, 440, 300, 30)
+        lb_col = (255, 215, 0) if lb_rect.collidepoint(mouse_pos) else (150, 150, 200)
+        lb_txt = font_small.render("📊 Voir le tableau des scores", True, lb_col)
+        screen.blit(lb_txt, lb_txt.get_rect(center=lb_rect.center))
+        if pygame.mouse.get_pressed()[0] and lb_rect.collidepoint(mouse_pos):
+            game_state = "LEADERBOARD"
+
         # Guide des touches
+        texte_bouton = font_small.render("COMMANDE EN JEU :", True, (255, 255, 255))
+        texte_rect = texte_bouton.get_rect(center=(WIDTH // 2, 495))
+        screen.blit(texte_bouton, texte_rect)
+
         pygame.draw.rect(
             screen, (255, 80, 80), (WIDTH // 2 - 250, 520, 200, 50), 2, border_radius=10
         )
-        texte_bouton = font_small.render("COMMANDE EN JEU :", True, (255, 255, 255))
-        texte_rect = texte_bouton.get_rect(center=(WIDTH // 2 - -50 + -50, 460 + 25))
-        screen.blit(texte_bouton, texte_rect)
-
         lbl_l = font_small.render("BONUS : A W S D", True, (255, 80, 80))
         screen.blit(lbl_l, lbl_l.get_rect(center=(WIDTH // 2 - 150, 542)))
+
         pygame.draw.rect(
             screen, (80, 255, 80), (WIDTH // 2 + 50, 520, 200, 50), 2, border_radius=10
         )
