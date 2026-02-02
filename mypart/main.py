@@ -11,7 +11,7 @@ pygame.init()
 sounds = load_sounds()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 game_surface = pygame.Surface((WIDTH, HEIGHT))
-pygame.display.set_caption("Fruit Slicer Ultimate")
+pygame.display.set_caption("Fruit Slicer Game")
 clock = pygame.time.Clock()
 
 image_data = load_game_assets()
@@ -19,48 +19,6 @@ image_data = load_game_assets()
 # --- Leaderboard (fichier JSON persistant) ---
 LEADERBOARD_FILE = "leaderboard.json"
 MAX_LEADERBOARD_ENTRIES = 10
-
-
-def load_leaderboard():
-    """Charge le tableau des scores depuis le fichier JSON"""
-    if os.path.exists(LEADERBOARD_FILE):
-        try:
-            with open(LEADERBOARD_FILE, "r") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            return []
-    return []
-
-
-def save_leaderboard(leaderboard):
-    """Sauvegarde le tableau des scores dans le fichier JSON"""
-    with open(LEADERBOARD_FILE, "w") as f:
-        json.dump(leaderboard, f, indent=2)
-
-
-def add_to_leaderboard(name, score, mode):
-    """Ajoute une entrée au tableau et trie par score décroissant"""
-    leaderboard = load_leaderboard()
-    leaderboard.append({"name": name, "score": score, "mode": mode})
-    leaderboard.sort(key=lambda x: x["score"], reverse=True)
-    leaderboard = leaderboard[:MAX_LEADERBOARD_ENTRIES]
-    save_leaderboard(leaderboard)
-    return leaderboard
-
-
-def get_player_rank(name, score, mode):
-    """Retourne le rang du joueur (1-indexé) ou None si pas dans le top"""
-    leaderboard = load_leaderboard()
-    for i, entry in enumerate(leaderboard):
-        if entry["name"] == name and entry["score"] == score and entry["mode"] == mode:
-            return i + 1
-    return None
-
-
-def is_name_taken(name):
-    """Vérifie si le nom existe déjà dans le leaderboard"""
-    leaderboard = load_leaderboard()
-    return any(entry["name"] == name for entry in leaderboard)
 
 
 # --- Variables Globales ---
@@ -73,16 +31,77 @@ is_overcharged, overcharge_timer, special_gauge = False, 0, 0
 MAX_GAUGE = 100
 
 # --- Variables pour l'écran USERNAME ---
-current_username = ""          # Nom en cours de saisie
-saved_username = ""            # Dernier nom validé (pour le remplir par défaut)
-pending_mode = "CLASSIC"       # Le mode à lancer après la saisie du nom
-username_input_active = True   # Pour gérer le focus de l'input
-username_error = ""            # Message d'erreur affiché sur l'écran USERNAME
+current_username = ""  # Nom en cours de saisie
+saved_username = ""  # Dernier nom validé (pour le remplir par défaut)
+pending_mode = "CLASSIC"  # Le mode à lancer après la saisie du nom
+username_input_active = True  # Pour gérer le focus de l'input
+username_error = ""  # Message d'erreur affiché sur l'écran USERNAME
 
 SPAWN_EVENT = pygame.USEREVENT + 1
 pygame.time.set_timer(SPAWN_EVENT, 900)
 
 
+# Chargement du leaderboard depuis le fichier JSON
+def load_leaderboard():
+    """Charge le tableau des scores depuis le fichier JSON"""
+    if os.path.exists(LEADERBOARD_FILE):
+        try:
+            with open(LEADERBOARD_FILE, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return []
+    return []
+
+
+# Sauvegarde du leaderboard dans le fichier JSON
+def save_leaderboard(leaderboard):
+    """Sauvegarde le tableau des scores dans le fichier JSON"""
+    with open(LEADERBOARD_FILE, "w") as f:
+        json.dump(leaderboard, f, indent=2)
+
+
+# Ajout ou mise à jour d'une entrée dans le leaderboard
+def add_to_leaderboard(name, score, mode):
+    """Ajoute le score à un joueur existant ou crée une nouvelle entrée"""
+    leaderboard = load_leaderboard()
+
+    # Chercher si le joueur existe déjà pour ce mode
+    player_found = False
+    for entry in leaderboard:
+        if entry["name"] == name and entry["mode"] == mode:
+            entry["score"] += score  # On ajoute les points au total existant
+            player_found = True
+            break
+
+    if not player_found:
+        # Si c'est un nouveau joueur ou nouveau mode pour ce joueur
+        leaderboard.append({"name": name, "score": score, "mode": mode})
+
+    # Tri par score total décroissant
+    leaderboard.sort(key=lambda x: x["score"], reverse=True)
+    leaderboard = leaderboard[:MAX_LEADERBOARD_ENTRIES]
+    save_leaderboard(leaderboard)
+    return leaderboard
+
+
+# Obtenir le rang d'un joueur dans le leaderboard
+def get_player_rank(name, score, mode):
+    """Retourne le rang du joueur (1-indexé) ou None si pas dans le top"""
+    leaderboard = load_leaderboard()
+    for i, entry in enumerate(leaderboard):
+        if entry["name"] == name and entry["score"] == score and entry["mode"] == mode:
+            return i + 1
+    return None
+
+
+# Vérifie si un nom est déjà pris dans le leaderboard
+def is_name_taken(name):
+    """Vérifie si le nom existe déjà dans le leaderboard"""
+    leaderboard = load_leaderboard()
+    return any(entry["name"] == name for entry in leaderboard)
+
+
+# Fonction pour couper tous les objets non-bombes à l'écran
 def trigger_area_cut(particle_color=WHITE):
     """Coupe tous les objets non-bombes à l'écran"""
     global score
@@ -107,6 +126,7 @@ def trigger_area_cut(particle_color=WHITE):
             active_objects.remove(obj)
 
 
+# Réinitialisation de la partie
 def reset_game(mode):
     """Réinitialise la partie"""
     global game_state, sub_mode, score, lives, speed_multiplier, challenge_timer
@@ -119,6 +139,7 @@ def reset_game(mode):
     active_objects, slices, particles, slashes, lightning_effects = [], [], [], [], []
 
 
+# Transition vers l'écran de saisie du nom
 def go_to_username_screen(mode):
     """Transition vers l'écran de saisie du nom avant de lancer une partie"""
     global game_state, pending_mode, current_username, username_input_active, username_error
@@ -160,13 +181,10 @@ while running:
                 elif event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
                     # Valider le nom et lancer la partie
                     if current_username.strip():
-                        if is_name_taken(current_username.strip()) and current_username.strip() != saved_username:
-                            username_error = "Ce nom est déjà utilisé !"
-                        else:
-                            username_error = ""
-                            saved_username = current_username.strip()
-                            pygame.key.stop_text_input()
-                            reset_game(pending_mode)
+                        saved_username = current_username.strip()
+                        username_error = ""
+                        pygame.key.stop_text_input()
+                        reset_game(pending_mode)
                     # Si le nom est vide, on ne fait rien (on reste sur l'écran)
                 elif event.key == pygame.K_ESCAPE:
                     # Annuler et retour au menu
@@ -174,6 +192,7 @@ while running:
                     game_state = "MENU"
             continue  # On ne traite pas les autres événements sur cet écran
 
+        # --- Gestion des clics et touches selon l'état du jeu ---
         if event.type == pygame.MOUSEBUTTONDOWN:
             if game_state == "MENU":
                 if WIDTH // 2 - 150 < mouse_pos[0] < WIDTH // 2 + 150:
@@ -193,19 +212,28 @@ while running:
                 if pygame.Rect(WIDTH // 2 - 150, 280, 300, 60).collidepoint(mouse_pos):
                     game_state = "LEADERBOARD"
                 # Bouton : recommencer (va d'abord demander le nom)
-                elif pygame.Rect(WIDTH // 2 - 150, 370, 300, 60).collidepoint(mouse_pos):
+                elif pygame.Rect(WIDTH // 2 - 150, 370, 300, 60).collidepoint(
+                    mouse_pos
+                ):
                     go_to_username_screen(sub_mode)
                 # Bouton : retour au menu
-                elif pygame.Rect(WIDTH // 2 - 150, 460, 300, 60).collidepoint(mouse_pos):
+                elif pygame.Rect(WIDTH // 2 - 150, 460, 300, 60).collidepoint(
+                    mouse_pos
+                ):
                     game_state = "MENU"
             elif game_state == "LEADERBOARD":
                 # Bouton : recommencer depuis le leaderboard
-                if pygame.Rect(WIDTH // 2 - 310, HEIGHT - 140, 300, 50).collidepoint(mouse_pos):
+                if pygame.Rect(WIDTH // 2 - 310, HEIGHT - 140, 300, 50).collidepoint(
+                    mouse_pos
+                ):
                     go_to_username_screen(sub_mode)
                 # Bouton : retour au menu depuis le leaderboard
-                elif pygame.Rect(WIDTH // 2 + 10, HEIGHT - 140, 300, 50).collidepoint(mouse_pos):
+                elif pygame.Rect(WIDTH // 2 + 10, HEIGHT - 140, 300, 50).collidepoint(
+                    mouse_pos
+                ):
                     game_state = "MENU"
 
+        # --- Gestion des touches clavier en mode PLAY ---
         if event.type == pygame.KEYDOWN:
             if game_state == "PLAY":
                 if combo_timer > 0:
@@ -320,6 +348,7 @@ while running:
                                     active_objects.remove(obj)
                             break
 
+        # --- Gestion du spawn des objets ---
         if event.type == SPAWN_EVENT and game_state == "PLAY":
             if not is_iced:
                 spawn_count = min(4, 1 + (score // 1000))
@@ -429,16 +458,16 @@ while running:
             ov = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             ov.fill((255, 165, 0, 40))
             screen.blit(ov, (0, 0))
-            pygame.draw.rect(screen, (50, 50, 50), (WIDTH - 220, 20, 200, 20))
+            pygame.draw.rect(screen, (50, 50, 50), (WIDTH - 370, 20, 200, 20))
             bar_col = ELECTRIC_ORANGE if special_gauge >= MAX_GAUGE else WHITE
             pygame.draw.rect(
                 screen,
                 bar_col,
-                (WIDTH - 220, 20, (special_gauge / MAX_GAUGE) * 200, 20),
+                (WIDTH - 370, 20, (special_gauge / MAX_GAUGE) * 200, 20),
             )
             screen.blit(
                 font_small.render("GRAND SLASH (ESPACE)", True, bar_col),
-                (WIDTH - 220, 45),
+                (WIDTH - 370, 45),
             )
 
         if is_iced:
@@ -460,7 +489,9 @@ while running:
             )
         )
         # Afficher le nom du joueur en haut à droite
-        name_text = font_small.render(f"Joueur: {saved_username}", True, (180, 180, 255))
+        name_text = font_small.render(
+            f"Joueur: {saved_username}", True, (180, 180, 255)
+        )
         screen.blit(name_text, (WIDTH - name_text.get_width() - 20, 20))
 
         screen.blit(
@@ -470,6 +501,7 @@ while running:
             (20, 20),
         )
 
+        # Flash à l'écran lors d'un cut spécial
         if game_state == "PAUSE":
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 180))
@@ -501,7 +533,9 @@ while running:
         screen.blit(titre, titre.get_rect(center=(WIDTH // 2, 140)))
 
         # Sous-titre (mode à lancer)
-        mode_label = "Mode : CLASSIQUE" if pending_mode == "CLASSIC" else "Mode : CHALLENGE"
+        mode_label = (
+            "Mode : CLASSIQUE" if pending_mode == "CLASSIC" else "Mode : CHALLENGE"
+        )
         sous_titre = font_small.render(mode_label, True, (180, 180, 255))
         screen.blit(sous_titre, sous_titre.get_rect(center=(WIDTH // 2, 200)))
 
@@ -523,12 +557,22 @@ while running:
             cursor_x = input_rect.centerx + input_text.get_width() // 2 + 4
             if not current_username:
                 cursor_x = input_rect.centerx - 8
-            pygame.draw.line(screen, WHITE, (cursor_x, input_rect.top + 10), (cursor_x, input_rect.bottom - 10), 2)
+            pygame.draw.line(
+                screen,
+                WHITE,
+                (cursor_x, input_rect.top + 10),
+                (cursor_x, input_rect.bottom - 10),
+                2,
+            )
 
         # Instructions
-        instruct1 = font_small.render("Tapez votre nom puis appuyez sur ENTRÉE", True, (180, 180, 180))
+        instruct1 = font_small.render(
+            "Tapez votre nom puis appuyez sur ENTRÉE", True, (180, 180, 180)
+        )
         screen.blit(instruct1, instruct1.get_rect(center=(WIDTH // 2, 350)))
-        instruct2 = font_small.render("(16 caractères max — ESC pour annuler)", True, (120, 120, 120))
+        instruct2 = font_small.render(
+            "(16 caractères max — ESC pour annuler)", True, (120, 120, 120)
+        )
         screen.blit(instruct2, instruct2.get_rect(center=(WIDTH // 2, 380)))
 
         # Message d'erreur (nom déjà pris)
@@ -549,8 +593,15 @@ while running:
         screen.blit(valider_txt, valider_txt.get_rect(center=valider_rect.center))
 
         # Click sur le bouton Valider avec la souris
-        if pygame.mouse.get_pressed()[0] and valider_rect.collidepoint(mouse_pos) and can_validate:
-            if is_name_taken(current_username.strip()) and current_username.strip() != saved_username:
+        if (
+            pygame.mouse.get_pressed()[0]
+            and valider_rect.collidepoint(mouse_pos)
+            and can_validate
+        ):
+            if (
+                is_name_taken(current_username.strip())
+                and current_username.strip() != saved_username
+            ):
                 username_error = "Ce nom est déjà utilisé !"
             else:
                 username_error = ""
@@ -570,17 +621,19 @@ while running:
         screen.blit(txt, txt.get_rect(center=(WIDTH // 2, 100)))
 
         # Nom du joueur et score
-        name_score = font_small.render(f"{saved_username} — SCORE FINAL : {score}", True, WHITE)
+        name_score = font_small.render(
+            f"{saved_username} — SCORE FINAL : {score}", True, WHITE
+        )
         screen.blit(name_score, name_score.get_rect(center=(WIDTH // 2, 170)))
 
         # Rank du joueur dans le leaderboard
         rank = get_player_rank(saved_username, score, sub_mode)
         if rank:
             if rank == 1:
-                rank_color = (255, 215, 0)   # Or
+                rank_color = (255, 215, 0)  # Or
                 rank_txt = f"🏆 NOUVEAU RECORD ! RANG #{rank}"
             elif rank <= 3:
-                rank_color = (255, 165, 0)   # Bronze/Argent
+                rank_color = (255, 165, 0)  # Bronze/Argent
                 rank_txt = f"⭐ RANG #{rank} AU TABLEAU !"
             else:
                 rank_color = (100, 200, 255)
@@ -621,16 +674,31 @@ while running:
         header_y = 90
 
         # Ligne séparatrice sous le titre
-        pygame.draw.line(screen, (100, 100, 150), (table_x - 10, 80), (table_x + sum(col_widths) + 10, 80), 1)
+        pygame.draw.line(
+            screen,
+            (100, 100, 150),
+            (table_x - 10, 80),
+            (table_x + sum(col_widths) + 10, 80),
+            1,
+        )
 
         # Afficher les en-têtes
         x_offset = table_x
         for i, header in enumerate(headers):
             h_surf = font_small.render(header, True, (150, 150, 200))
-            screen.blit(h_surf, (x_offset + col_widths[i] // 2 - h_surf.get_width() // 2, header_y))
+            screen.blit(
+                h_surf,
+                (x_offset + col_widths[i] // 2 - h_surf.get_width() // 2, header_y),
+            )
             x_offset += col_widths[i]
 
-        pygame.draw.line(screen, (100, 100, 150), (table_x - 10, header_y + 28), (table_x + sum(col_widths) + 10, header_y + 28), 1)
+        pygame.draw.line(
+            screen,
+            (100, 100, 150),
+            (table_x - 10, header_y + 28),
+            (table_x + sum(col_widths) + 10, header_y + 28),
+            1,
+        )
 
         # Afficher les entrées du leaderboard
         row_height = 42
@@ -638,33 +706,45 @@ while running:
 
         if not leaderboard:
             # Message si le tableau est vide
-            empty_txt = font_small.render("Aucun score enregistré pour le moment.", True, (120, 120, 120))
-            screen.blit(empty_txt, empty_txt.get_rect(center=(WIDTH // 2, start_y + 40)))
+            empty_txt = font_small.render(
+                "Aucun score enregistré pour le moment.", True, (120, 120, 120)
+            )
+            screen.blit(
+                empty_txt, empty_txt.get_rect(center=(WIDTH // 2, start_y + 40))
+            )
         else:
             for idx, entry in enumerate(leaderboard):
                 row_y = start_y + idx * row_height
                 rank_num = idx + 1
 
                 # Couleur de fond alternée pour la lisibilité
-                row_rect = pygame.Rect(table_x - 10, row_y - 4, sum(col_widths) + 20, row_height - 4)
+                row_rect = pygame.Rect(
+                    table_x - 10, row_y - 4, sum(col_widths) + 20, row_height - 4
+                )
                 if idx % 2 == 0:
                     pygame.draw.rect(screen, (25, 25, 50), row_rect, border_radius=4)
                 else:
                     pygame.draw.rect(screen, (35, 35, 65), row_rect, border_radius=4)
 
                 # Mettre en relief le joueur actuel
-                is_current = (entry["name"] == saved_username and entry["score"] == score and entry["mode"] == sub_mode)
+                is_current = (
+                    entry["name"] == saved_username
+                    and entry["score"] == score
+                    and entry["mode"] == sub_mode
+                )
                 if is_current:
                     pygame.draw.rect(screen, (60, 60, 120), row_rect, border_radius=4)
-                    pygame.draw.rect(screen, (255, 215, 0), row_rect, 2, border_radius=4)
+                    pygame.draw.rect(
+                        screen, (255, 215, 0), row_rect, 2, border_radius=4
+                    )
 
                 # Couleurs des rangs
                 if rank_num == 1:
-                    rank_color = (255, 215, 0)    # Or
+                    rank_color = (255, 215, 0)  # Or
                 elif rank_num == 2:
                     rank_color = (192, 192, 192)  # Argent
                 elif rank_num == 3:
-                    rank_color = (205, 127, 50)   # Bronze
+                    rank_color = (205, 127, 50)  # Bronze
                 else:
                     rank_color = WHITE
 
@@ -673,14 +753,20 @@ while running:
                     str(rank_num),
                     entry["name"],
                     str(entry["score"]),
-                    entry["mode"]
+                    entry["mode"],
                 ]
 
                 x_offset = table_x
                 for col_idx, val in enumerate(values):
-                    color = rank_color if col_idx == 0 else (WHITE if is_current else (220, 220, 220))
+                    color = (
+                        rank_color
+                        if col_idx == 0
+                        else (WHITE if is_current else (220, 220, 220))
+                    )
                     cell_surf = font_small.render(val, True, color)
-                    cell_x = x_offset + col_widths[col_idx] // 2 - cell_surf.get_width() // 2
+                    cell_x = (
+                        x_offset + col_widths[col_idx] // 2 - cell_surf.get_width() // 2
+                    )
                     screen.blit(cell_surf, (cell_x, row_y))
                     x_offset += col_widths[col_idx]
 
@@ -697,7 +783,7 @@ while running:
 
     # --- MENU ---
     else:  # MENU
-        txt = font_huge.render("FRUIT SLICER ULTIMATE", True, WHITE)
+        txt = font_huge.render("FRUIT SLICER GAME", True, WHITE)
         screen.blit(txt, txt.get_rect(center=(WIDTH // 2, 150)))
 
         # Bouton vers le leaderboard depuis le menu (au-dessus des commandes)
